@@ -20,4 +20,5 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun flipBy(turns: Float) = repository.flipBy(turns)
     fun stop() = repository.stop()
     fun clearErrors() = repository.clearErrors()
+    fun setMaxVelocity(velocity: Float) = repository.setMaxVelocity(velocity)
 }

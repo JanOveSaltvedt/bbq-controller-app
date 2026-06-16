@@ -23,6 +23,11 @@ object RotisserieUuids {
     const val CMD_FLIP_BY: Byte = 0x00
     const val CMD_FORCE_IDLE: Byte = 0x02
     const val CMD_CLEAR_ERRORS: Byte = 0x03
+    const val CMD_SET_MAX_VELOCITY: Byte = 0x04
+
+    /** Firmware default move-speed cap (gearbox rev/s); range is (0, MAX_VELOCITY_MAX]. */
+    const val DEFAULT_MAX_VELOCITY = 0.1f
+    const val MAX_VELOCITY_MAX = 1.0f
 }
 
 /**

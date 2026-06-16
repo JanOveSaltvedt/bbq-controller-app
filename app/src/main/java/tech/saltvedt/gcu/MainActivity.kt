@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
                         onFlipBy = viewModel::flipBy,
                         onStop = viewModel::stop,
                         onClearErrors = viewModel::clearErrors,
+                        onSetMaxVelocity = viewModel::setMaxVelocity,
                     )
                 }
             }

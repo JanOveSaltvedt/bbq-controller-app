@@ -121,6 +121,10 @@ class BbqRepository(context: Context) {
         scope.launch { rotisserie.clearErrors() }
     }
 
+    fun setMaxVelocity(velocity: Float) {
+        scope.launch { rotisserie.setMaxVelocity(velocity) }
+    }
+
     private companion object {
         const val TAG = "BbqRepository"
         const val MAX_LOG_ENTRIES = 50

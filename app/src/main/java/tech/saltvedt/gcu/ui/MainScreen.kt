@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import tech.saltvedt.gcu.ble.RotisserieUuids
 import tech.saltvedt.gcu.model.CommsLogEntry
 import tech.saltvedt.gcu.model.ConnectionStatus
 import tech.saltvedt.gcu.model.ControllerEvent
@@ -54,6 +55,7 @@ fun MainScreen(
     onFlipBy: (Float) -> Unit,
     onStop: () -> Unit,
     onClearErrors: () -> Unit,
+    onSetMaxVelocity: (Float) -> Unit,
 ) {
     val uiState by uiStateFlow.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -77,7 +79,7 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ConnectionHeader(uiState.rotisserie, uiState.temp)
-            RotisserieCard(uiState.rotisserie, onFlipBy, onStop, onClearErrors)
+            RotisserieCard(uiState.rotisserie, onFlipBy, onStop, onClearErrors, onSetMaxVelocity)
             TempCard(uiState.temp)
             CommsLogCard(uiState.commsLog)
         }
@@ -142,6 +144,7 @@ private fun RotisserieCard(
     onFlipBy: (Float) -> Unit,
     onStop: () -> Unit,
     onClearErrors: () -> Unit,
+    onSetMaxVelocity: (Float) -> Unit,
 ) {
     val connected = state.connection == ConnectionStatus.Connected
     Card(elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
@@ -180,6 +183,49 @@ private fun RotisserieCard(
                     Text("Clear errors")
                 }
             }
+
+            MaxVelocityControl(
+                enabled = connected,
+                current = state.maxVelocity,
+                onSetMaxVelocity = onSetMaxVelocity,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MaxVelocityControl(
+    enabled: Boolean,
+    current: Float,
+    onSetMaxVelocity: (Float) -> Unit,
+) {
+    // Rarely changed: a compact text field + Set button. Accepts (0, 1.0] rev/s,
+    // defaulting to the firmware's 0.1. Seeded from the last-written value.
+    var text by remember(current) { mutableStateOf("%.2f".format(current)) }
+    val typed = text.toFloatOrNull()
+    val valid = typed != null && typed > 0f && typed <= RotisserieUuids.MAX_VELOCITY_MAX
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Max speed", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            singleLine = true,
+            isError = text.isNotEmpty() && !valid,
+            suffix = { Text("rev/s") },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+            ),
+            modifier = Modifier.width(140.dp),
+        )
+        Button(
+            onClick = { typed?.let(onSetMaxVelocity) },
+            enabled = enabled && valid,
+        ) {
+            Text("Set")
         }
     }
 }

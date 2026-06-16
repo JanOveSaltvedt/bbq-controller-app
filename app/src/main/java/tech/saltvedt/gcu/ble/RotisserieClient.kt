@@ -205,6 +205,10 @@ class RotisserieClient(
 
             pollRssi(gatt)
 
+            // The speed cap is not persisted across an ESP32 reboot and has no read-back,
+            // so push our tracked value to keep the device and UI in agreement.
+            setMaxVelocity(_state.value.maxVelocity)
+
             log("Telemetry subscribed — ready")
         }
     }
@@ -257,6 +261,16 @@ class RotisserieClient(
     suspend fun stop() = write(Parsing.forceIdleCommand, "force_idle")
 
     suspend fun clearErrors() = write(Parsing.clearErrorsCommand, "clear_errors")
+
+    /**
+     * Set the move-speed cap (gearbox rev/s). The firmware has no read-back and resets
+     * to its default on reboot, so we track the value client-side and re-assert it on
+     * every (re)connect (see [onConnected]).
+     */
+    suspend fun setMaxVelocity(velocity: Float) {
+        write(Parsing.setMaxVelocityCommand(velocity), "set_max_velocity $velocity")
+        _state.update { it.copy(maxVelocity = velocity) }
+    }
 
     /** Serializes command writes so taps can't race each other into the GATT queue. */
     private val writeMutex = Mutex()

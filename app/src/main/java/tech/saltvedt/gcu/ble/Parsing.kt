@@ -70,6 +70,11 @@ object Parsing {
     val forceIdleCommand: ByteArray = byteArrayOf(RotisserieUuids.CMD_FORCE_IDLE)
     val clearErrorsCommand: ByteArray = byteArrayOf(RotisserieUuids.CMD_CLEAR_ERRORS)
 
+    /** `set_max_velocity`: kind byte + f32 LE cap in gearbox rev/s (5 bytes). */
+    fun setMaxVelocityCommand(velocity: Float): ByteArray =
+        ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
+            .put(RotisserieUuids.CMD_SET_MAX_VELOCITY).putFloat(velocity).array()
+
     // --- Temperature probe ---
 
     data class TempReading(val probeId: Int, val celsius: Float, val battery: Int)

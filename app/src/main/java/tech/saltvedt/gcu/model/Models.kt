@@ -31,6 +31,7 @@ data class RotisserieState(
     val busVoltage: Float? = null,      // Volts
     val activeErrors: Long = 0L,
     val disarmReason: Long = 0L,
+    val maxVelocity: Float = 0.1f,      // last-written move-speed cap, gearbox rev/s (no read-back)
 ) {
     val hasErrors: Boolean get() = activeErrors != 0L || disarmReason != 0L
 }

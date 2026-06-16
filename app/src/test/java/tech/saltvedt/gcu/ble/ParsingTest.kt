@@ -86,6 +86,14 @@ class ParsingTest {
     }
 
     @Test
+    fun `set_max_velocity command is kind 4 plus little-endian f32`() {
+        val cmd = Parsing.setMaxVelocityCommand(0.1f)
+        assertEquals(5, cmd.size)
+        assertEquals(0x04.toByte(), cmd[0])
+        assertEquals(0.1f, Parsing.f32(cmd, 1), 0.0001f)
+    }
+
+    @Test
     fun `temp decode matches legacy formula`() {
         // Build a frame where data[9]=0x64, data[8]=0x01 => raw=(0x64<<2)|1=401, f=301
         val data = ByteArray(12)
