@@ -168,8 +168,11 @@ Write-only control interface (5 bytes).
 | `0x01` | set_target | f32 absolute position (gearbox turns) | 5 | Absolute move |
 | `0x02` | force_idle | ignored | 1 | Stop immediately; clear pending move |
 | `0x03` | clear_errors | ignored | 1 | Clear stall flag and ODrive errors |
+| `0x04` | set_max_velocity | f32 max speed (gearbox rev/s) | 5 | Speed cap applied to the next and all subsequent moves |
 
 Writes shorter than the minimum length for that kind are silently ignored.
+
+**`set_max_velocity` (`0x04`):** sets the maximum move speed in **gearbox rev/s**. The default is `0.1` (1 gearbox revolution per 10 s). The value is clamped to the range `(0, 1.0]` gearbox rev/s — non-positive values are rejected, and values above `1.0` are capped. The cap is applied as the ODrive `vel_limit` at the start of every move (re-asserted per move), so it survives an ODrive reset but is **not** persisted across an ESP32 reboot — it returns to the `0.1` default on power-up. There is no read-back characteristic; track the last-written value client-side.
 
 ---
 
@@ -188,6 +191,10 @@ Writes shorter than the minimum length for that kind are silently ignored.
 ### Starting a move
 
 Write to `command` with kind `0x00` (flip_by) or `0x01` (set_target), or write to `target_position` with flag `0x01`. The controller sends the ODrive into Closed Loop Control mode and begins tracking the target.
+
+### Configuring move speed
+
+Write `command` kind `0x04` (set_max_velocity) with an f32 max speed in gearbox rev/s. This caps how fast moves are performed (applied as the ODrive `vel_limit`). The default is `0.1` gearbox rev/s (one revolution per 10 s); accepted range is `(0, 1.0]`. It takes effect on the next move. See the `set_max_velocity` note under the `command` characteristic for persistence details.
 
 ### Detecting completion
 

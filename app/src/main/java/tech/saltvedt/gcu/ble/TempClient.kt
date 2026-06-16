@@ -81,6 +81,7 @@ class TempClient(
     private fun onDisconnected() {
         writeChar = null
         sessionJob?.cancel()
+        _state.update { it.copy(rssi = null) }
         log("Disconnected — link dropped", error = true)
     }
 
@@ -115,6 +116,27 @@ class TempClient(
 
             log("Handshake sent — polling")
             startPolling()
+            pollRssi(gatt)
+        }
+    }
+
+    /**
+     * Poll the remote RSSI on a fixed cadence for as long as this session is alive.
+     * Runs as a child of [sessionJob], so it stops on disconnect. A failed read is
+     * swallowed (rssi cleared) — it must never take down the session or poll loop.
+     */
+    @SuppressLint("MissingPermission")
+    private fun CoroutineScope.pollRssi(gatt: ClientBleGatt) {
+        launch {
+            while (isActive) {
+                try {
+                    val rssi = gatt.readRssi()
+                    _state.update { it.copy(rssi = rssi) }
+                } catch (e: Exception) {
+                    _state.update { it.copy(rssi = null) }
+                }
+                delay(RSSI_INTERVAL_MS)
+            }
         }
     }
 
@@ -169,5 +191,6 @@ class TempClient(
         const val TAG = "TempClient"
         const val POLL_INTERVAL_MS = 5000L
         const val WRITE_TIMEOUT_MS = 3000L
+        const val RSSI_INTERVAL_MS = 3000L
     }
 }

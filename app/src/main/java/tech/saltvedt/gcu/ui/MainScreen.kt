@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -16,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -23,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,7 +76,7 @@ fun MainScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ConnectionHeader(uiState.rotisserie.connection, uiState.temp.connection)
+            ConnectionHeader(uiState.rotisserie, uiState.temp)
             RotisserieCard(uiState.rotisserie, onFlipBy, onStop, onClearErrors)
             TempCard(uiState.temp)
             CommsLogCard(uiState.commsLog)
@@ -93,18 +96,23 @@ private suspend fun SnackbarHostState.showMessage(event: ControllerEvent) {
 }
 
 @Composable
-private fun ConnectionHeader(rotisserie: ConnectionStatus, temp: ConnectionStatus) {
+private fun ConnectionHeader(rotisserie: RotisserieState, temp: TempState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ConnectionChip("Rotisserie", rotisserie, Modifier.weight(1f))
-        ConnectionChip("Temp sensor", temp, Modifier.weight(1f))
+        ConnectionChip("Rotisserie", rotisserie.connection, rotisserie.rssi, Modifier.weight(1f))
+        ConnectionChip("Temp sensor", temp.connection, temp.rssi, Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun ConnectionChip(label: String, status: ConnectionStatus, modifier: Modifier = Modifier) {
+private fun ConnectionChip(
+    label: String,
+    status: ConnectionStatus,
+    rssi: Int?,
+    modifier: Modifier = Modifier,
+) {
     val color = when (status) {
         ConnectionStatus.Connected -> Color(0xFF2E7D32)
         ConnectionStatus.Connecting, ConnectionStatus.Scanning -> Color(0xFFF9A825)
@@ -119,7 +127,8 @@ private fun ConnectionChip(label: String, status: ConnectionStatus, modifier: Mo
         Column(Modifier.padding(12.dp)) {
             Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
             Text(
-                status.name,
+                if (status == ConnectionStatus.Connected && rssi != null)
+                    "${status.name} · $rssi dBm" else status.name,
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -177,27 +186,59 @@ private fun RotisserieCard(
 
 @Composable
 private fun FlipControl(enabled: Boolean, onFlipBy: (Float) -> Unit) {
-    var text by remember { mutableStateOf("1.0") }
-    Row(
+    // -1 to 1 turns. The slider snaps to 0.25 increments (8 intervals -> 7
+    // intermediate steps), but the text field can override with any precise value
+    // in range. The two stay in sync: dragging fills the field, typing moves the thumb.
+    var turns by remember { mutableFloatStateOf(1.0f) }
+    var text by remember { mutableStateOf("1.00") }
+    val typed = text.toFloatOrNull()
+    val valid = typed != null && typed in -1f..1f
+    Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            label = { Text("Turns") },
-            singleLine = true,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = KeyboardType.Number,
-            ),
-            modifier = Modifier.weight(1f),
-        )
-        Button(
-            onClick = { text.toFloatOrNull()?.let(onFlipBy) },
-            enabled = enabled && text.toFloatOrNull() != null,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Flip")
+            Text("Turns", style = MaterialTheme.typography.labelLarge)
+            OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    it.toFloatOrNull()?.let { v -> if (v in -1f..1f) turns = v }
+                },
+                singleLine = true,
+                isError = text.isNotEmpty() && !valid,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                ),
+                modifier = Modifier.width(112.dp),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Slider(
+                value = turns,
+                onValueChange = {
+                    turns = it
+                    text = "%.2f".format(it)
+                },
+                valueRange = -1f..1f,
+                steps = 7,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = { typed?.let(onFlipBy) },
+                enabled = enabled && valid,
+            ) {
+                Text("Flip")
+            }
         }
     }
 }

@@ -22,6 +22,7 @@ data class MotorStatus(
 /** Full rotisserie state. Null fields mean "unknown / stale / not yet received". */
 data class RotisserieState(
     val connection: ConnectionStatus = ConnectionStatus.Idle,
+    val rssi: Int? = null,              // latest signal strength in dBm; null when unknown
     val position: Float? = null,        // gearbox turns
     val velocity: Float? = null,        // gearbox rev/s
     val targetActive: Boolean = false,
@@ -42,6 +43,7 @@ data class ControllerEvent(val kind: ControllerEventKind, val payload: Long)
 /** Two meat-probe temperatures plus probe battery. */
 data class TempState(
     val connection: ConnectionStatus = ConnectionStatus.Idle,
+    val rssi: Int? = null,              // latest signal strength in dBm; null when unknown
     val temp1C: Float? = null,
     val temp2C: Float? = null,
     val battery: Int? = null,           // 0..100
