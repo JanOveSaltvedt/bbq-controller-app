@@ -94,6 +94,47 @@ class ParsingTest {
     }
 
     @Test
+    fun `auto_turn parses enabled, step and period`() {
+        val disabled = Parsing.parseAutoTurn(byteArrayOf(0x00) + ByteArray(8))
+        assertNotNull(disabled)
+        assertFalse(disabled!!.first)
+
+        val enabled = Parsing.parseAutoTurn(byteArrayOf(0x01) + f32le(0.25f) + f32le(30.0f))
+        assertNotNull(enabled)
+        assertTrue(enabled!!.first)
+        assertEquals(0.25f, enabled.second, 0.0001f)
+        assertEquals(30.0f, enabled.third, 0.0001f)
+    }
+
+    @Test
+    fun `auto_turn rejects short frames`() {
+        assertNull(Parsing.parseAutoTurn(ByteArray(8)))
+    }
+
+    @Test
+    fun `auto_turn_remaining disabled sentinel returns null`() {
+        val disabled = byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte())
+        assertNull(Parsing.parseAutoTurnRemaining(disabled))
+        assertEquals(15.5f, Parsing.parseAutoTurnRemaining(f32le(15.5f))!!, 0.0001f)
+    }
+
+    @Test
+    fun `enable auto_turn encodes flag, step and period`() {
+        val cmd = Parsing.enableAutoTurnCommand(0.5f, 45.0f)
+        assertEquals(9, cmd.size)
+        assertEquals(0x01.toByte(), cmd[0])
+        assertEquals(0.5f, Parsing.f32(cmd, 1), 0.0001f)
+        assertEquals(45.0f, Parsing.f32(cmd, 5), 0.0001f)
+    }
+
+    @Test
+    fun `disable auto_turn encodes single zero byte`() {
+        val cmd = Parsing.disableAutoTurnCommand
+        assertEquals(1, cmd.size)
+        assertEquals(0x00.toByte(), cmd[0])
+    }
+
+    @Test
     fun `temp decode matches legacy formula`() {
         // Build a frame where data[9]=0x64, data[8]=0x01 => raw=(0x64<<2)|1=401, f=301
         val data = ByteArray(12)

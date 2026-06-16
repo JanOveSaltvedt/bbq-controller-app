@@ -75,6 +75,30 @@ object Parsing {
         ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
             .put(RotisserieUuids.CMD_SET_MAX_VELOCITY).putFloat(velocity).array()
 
+    /**
+     * `auto_turn` notify/read: byte0 enabled (0/1) + f32 step turns + f32 period seconds
+     * (9 bytes). Returns (enabled, step, period); null when the frame is too short.
+     */
+    fun parseAutoTurn(bytes: ByteArray): Triple<Boolean, Float, Float>? {
+        if (bytes.size < 9) return null
+        return Triple(bytes[0].toInt() == 0x01, f32(bytes, 1), f32(bytes, 5))
+    }
+
+    /**
+     * `auto_turn_remaining`: f32 LE seconds until the next turn. The "disabled"
+     * sentinel is the same four-0xFF pattern as the stale f32 chars, so reuse
+     * [parseF32OrStale] — null means no schedule is active.
+     */
+    fun parseAutoTurnRemaining(bytes: ByteArray): Float? = parseF32OrStale(bytes)
+
+    /** `auto_turn` enable write: flag 0x01 + f32 step + f32 period (9 bytes). */
+    fun enableAutoTurnCommand(step: Float, period: Float): ByteArray =
+        ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
+            .put(0x01).putFloat(step).putFloat(period).array()
+
+    /** `auto_turn` cancel write: a single 0x00 flag byte. */
+    val disableAutoTurnCommand: ByteArray = byteArrayOf(0x00)
+
     // --- Temperature probe ---
 
     data class TempReading(val probeId: Int, val celsius: Float, val battery: Int)

@@ -24,7 +24,7 @@ The device advertises connectable undirected packets continuously. It returns to
 
 **Service UUID:** `59a4a1c0-8b8e-4a9c-bbe3-000000000001`
 
-The service contains 8 characteristics:
+The service contains 10 characteristics:
 
 | UUID suffix | Name | Properties |
 |---|---|---|
@@ -36,6 +36,8 @@ The service contains 8 characteristics:
 | `...0007` | errors | Read, Notify |
 | `...0008` | controller_event | Notify |
 | `...0009` | command | Write |
+| `...000a` | auto_turn | Read, Write, Notify |
+| `...000b` | auto_turn_remaining | Read, Notify |
 
 ---
 
@@ -149,7 +151,7 @@ Asynchronous event notifications from the controller (5 bytes, notify only).
 
 **Notify behaviour:** The cached GATT value is **not** updated on notify (`store=false`). Read the characteristic after reconnect will return the previous event, not the last one. Subscribe via CCCD and rely on notifications only.
 
-After firing `controller_event`, the firmware immediately pushes a fresh telemetry batch (all six sensor characteristics), so the subsequent notifications will reflect the post-event state.
+After firing `controller_event`, the firmware immediately pushes a fresh telemetry batch (all eight batched characteristics), so the subsequent notifications will reflect the post-event state.
 
 ---
 
@@ -176,10 +178,56 @@ Writes shorter than the minimum length for that kind are silently ignored.
 
 ---
 
+### `auto_turn` — `59a4a1c0-8b8e-4a9c-bbe3-00000000000a`
+
+Recurring "turn X gearbox turns every Y seconds" schedule. When enabled, the controller automatically performs a relative move of `step` gearbox turns (a `flip_by`) once per `period`. This is intended for slow rotisserie roasting — the spit advances a little, then idles, repeatedly, hands-free.
+
+**Read / Notify format (9 bytes):**
+
+| Byte(s) | Field | Type | Notes |
+|---|---|---|---|
+| 0 | enabled | u8 | `0x00` = off, `0x01` = active |
+| 1–4 | step | f32 LE | gearbox turns per cycle (signed; `0` when off) |
+| 5–8 | period | f32 LE | seconds between cycles (`0` when off) |
+
+**Write format (9 bytes):**
+
+| Byte(s) | Value | Effect |
+|---|---|---|
+| 0 = `0x00`, 1–8 = any | Cancel the schedule (disable auto-turn) |
+| 0 = `0x01`, 1–4 = f32 LE step, 5–8 = f32 LE period | Enable: turn `step` gearbox turns every `period` seconds |
+
+Minimum write length: 1 byte to cancel, 9 bytes to enable. An enable write with fewer than 9 bytes is silently ignored.
+
+**Behaviour notes:**
+
+- **Direction:** each cycle is a *relative* move of `step` turns from the current position, so rotation accumulates in one direction (use a negative `step` to reverse). It does not oscillate back and forth.
+- **First turn:** fires one full `period` after the enable write (the countdown starts at `period`, not at zero).
+- **Validation:** non-finite `step`, zero `step`, or non-positive `period` are rejected and the write is ignored (the schedule is left unchanged).
+- **Interaction with moves:** if a move (manual or a previous auto-turn) is still in progress when a turn is due, the turn is deferred until the controller is idle, then fires on the next 200 ms tick. The next cycle is timed from when a turn actually fires, so a slow move never builds up a backlog.
+- **Cancellation:** a `force_idle` (via `command` kind `0x02` or a `0x00` write to `target_position`) **also cancels auto-turn** — Stop means stop everything. `clear_errors` leaves the schedule running.
+- **Persistence:** the schedule is **not** persisted across an ESP32 reboot; it is disabled on power-up.
+
+---
+
+### `auto_turn_remaining` — `59a4a1c0-8b8e-4a9c-bbe3-00000000000b`
+
+Time remaining until the next auto-turn fires.
+
+| Bytes | Field | Type | Units |
+|---|---|---|---|
+| 0–3 | remaining | f32 LE | seconds |
+
+Counts down from `period` toward `0` and resets after each turn. While a due turn is deferred (a move is still running) it reads `0`.
+
+**Disabled sentinel:** `[0xFF, 0xFF, 0xFF, 0xFF]` — auto-turn is currently off. This is the same sentinel used by the stale f32 characteristics; here it specifically means "no schedule active" rather than "stale data".
+
+---
+
 ## Notification Timing
 
 **Telemetry batch (every 200 ms):**  
-`position`, `velocity`, `target_position`, `motor_status`, `bus_voltage`, and `errors` are notified together as a batch while a client is connected. Each notification also updates the cached GATT value (`store=true`), so a plain Read on any of these characteristics returns the most recently notified value.
+`position`, `velocity`, `target_position`, `motor_status`, `bus_voltage`, `errors`, `auto_turn`, and `auto_turn_remaining` are notified together as a batch while a client is connected. Each notification also updates the cached GATT value (`store=true`), so a plain Read on any of these characteristics returns the most recently notified value. (The `auto_turn_remaining` countdown therefore updates at ~5 Hz.)
 
 **Event-driven:**  
 `controller_event` is sent immediately when the move controller fires an event (not on the 200 ms cadence). A full telemetry batch follows it synchronously, so the app receives a consistent state snapshot after each event.
@@ -195,6 +243,17 @@ Write to `command` with kind `0x00` (flip_by) or `0x01` (set_target), or write t
 ### Configuring move speed
 
 Write `command` kind `0x04` (set_max_velocity) with an f32 max speed in gearbox rev/s. This caps how fast moves are performed (applied as the ODrive `vel_limit`). The default is `0.1` gearbox rev/s (one revolution per 10 s); accepted range is `(0, 1.0]`. It takes effect on the next move. See the `set_max_velocity` note under the `command` characteristic for persistence details.
+
+### Running a recurring turn (auto-turn)
+
+To make the spit advance automatically, enable a schedule via the `auto_turn` characteristic:
+
+1. Write `[0x01, <f32 step>, <f32 period>]` (9 bytes) to `auto_turn` — e.g. step = `0.25` turns, period = `30.0` s.
+2. Subscribe to `auto_turn_remaining` (notified every 200 ms) to drive a countdown UI; it resets to `period` after each turn.
+3. Each fired turn runs as a normal move, so you still get `controller_event` MoveComplete / Stall / etc. and live `position` updates.
+4. Cancel with a `[0x00]` write to `auto_turn`, or stop everything with `force_idle` (which also cancels the schedule).
+
+The first turn happens one full period after enabling. See the `auto_turn` characteristic for full semantics (direction, deferral, validation, persistence).
 
 ### Detecting completion
 
@@ -212,7 +271,7 @@ Subscribe to `controller_event` kind `3` (ConnectionLost). The ODrive normally s
 
 ### Cancelling a move
 
-Write `command` kind `0x02` (force_idle), or write `[0x00, 0x00, 0x00, 0x00, 0x00]` to `target_position`.
+Write `command` kind `0x02` (force_idle), or write `[0x00, 0x00, 0x00, 0x00, 0x00]` to `target_position`. Both also cancel any active auto-turn schedule.
 
 ### Recovering from errors
 
@@ -230,6 +289,8 @@ Write `command` kind `0x02` (force_idle), or write `[0x00, 0x00, 0x00, 0x00, 0x0
 | position | gearbox turns | 1 turn = 360° of gearbox output shaft |
 | velocity | gearbox rev/s | |
 | flip_by / set_target argument | gearbox turns | |
+| auto_turn step | gearbox turns | per cycle; signed |
+| auto_turn period / remaining | seconds | |
 | bus_current | Amperes | Power bus, not motor phase current |
 | bus_voltage | Volts | Typically ~24 V |
 | torque_estimate | Newton-metres | Estimated at motor output |

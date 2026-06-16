@@ -56,6 +56,8 @@ fun MainScreen(
     onStop: () -> Unit,
     onClearErrors: () -> Unit,
     onSetMaxVelocity: (Float) -> Unit,
+    onSetAutoTurn: (Float, Float) -> Unit,
+    onCancelAutoTurn: () -> Unit,
 ) {
     val uiState by uiStateFlow.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -79,7 +81,10 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ConnectionHeader(uiState.rotisserie, uiState.temp)
-            RotisserieCard(uiState.rotisserie, onFlipBy, onStop, onClearErrors, onSetMaxVelocity)
+            RotisserieCard(
+                uiState.rotisserie, onFlipBy, onStop, onClearErrors, onSetMaxVelocity,
+                onSetAutoTurn, onCancelAutoTurn,
+            )
             TempCard(uiState.temp)
             CommsLogCard(uiState.commsLog)
         }
@@ -145,6 +150,8 @@ private fun RotisserieCard(
     onStop: () -> Unit,
     onClearErrors: () -> Unit,
     onSetMaxVelocity: (Float) -> Unit,
+    onSetAutoTurn: (Float, Float) -> Unit,
+    onCancelAutoTurn: () -> Unit,
 ) {
     val connected = state.connection == ConnectionStatus.Connected
     Card(elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
@@ -189,6 +196,106 @@ private fun RotisserieCard(
                 current = state.maxVelocity,
                 onSetMaxVelocity = onSetMaxVelocity,
             )
+
+            TelemetryRow(
+                "Next turn",
+                // null remaining = no schedule; 0 shows while a due turn is deferred.
+                if (state.autoTurnEnabled)
+                    state.autoTurnRemaining?.let { "%.0f s".format(it) } ?: "0 s"
+                else "off",
+            )
+
+            AutoTurnControl(
+                enabled = connected,
+                active = state.autoTurnEnabled,
+                onSetAutoTurn = onSetAutoTurn,
+                onCancelAutoTurn = onCancelAutoTurn,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AutoTurnControl(
+    enabled: Boolean,
+    active: Boolean,
+    onSetAutoTurn: (Float, Float) -> Unit,
+    onCancelAutoTurn: () -> Unit,
+) {
+    // Recurring "turn X gearbox turns every Y seconds". Step uses the same -1..1
+    // slider+field combo as FlipControl; period is a plain seconds field. A single
+    // button toggles between starting and cancelling, driven by the live [active] state.
+    var step by remember { mutableFloatStateOf(0.25f) }
+    var stepText by remember { mutableStateOf("0.25") }
+    var periodText by remember { mutableStateOf("30") }
+    val typedStep = stepText.toFloatOrNull()
+    val typedPeriod = periodText.toFloatOrNull()
+    val stepValid = typedStep != null && typedStep in -1f..1f && typedStep != 0f
+    val periodValid = typedPeriod != null && typedPeriod > 0f
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("Auto-turn", style = MaterialTheme.typography.labelLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Slider(
+                value = step,
+                onValueChange = {
+                    step = it
+                    stepText = "%.2f".format(it)
+                },
+                valueRange = -1f..1f,
+                steps = 7,
+                enabled = enabled && !active,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = stepText,
+                onValueChange = {
+                    stepText = it
+                    it.toFloatOrNull()?.let { v -> if (v in -1f..1f) step = v }
+                },
+                singleLine = true,
+                enabled = !active,
+                isError = stepText.isNotEmpty() && !stepValid,
+                suffix = { Text("turns") },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                ),
+                modifier = Modifier.width(132.dp),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Every", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            OutlinedTextField(
+                value = periodText,
+                onValueChange = { periodText = it },
+                singleLine = true,
+                enabled = !active,
+                isError = periodText.isNotEmpty() && !periodValid,
+                suffix = { Text("s") },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                ),
+                modifier = Modifier.width(132.dp),
+            )
+            Button(
+                onClick = {
+                    if (active) onCancelAutoTurn()
+                    else if (typedStep != null && typedPeriod != null) onSetAutoTurn(typedStep, typedPeriod)
+                },
+                enabled = enabled && (active || (stepValid && periodValid)),
+            ) {
+                Text(if (active) "Cancel" else "Start")
+            }
         }
     }
 }

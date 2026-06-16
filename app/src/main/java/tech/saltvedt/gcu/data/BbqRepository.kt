@@ -125,6 +125,14 @@ class BbqRepository(context: Context) {
         scope.launch { rotisserie.setMaxVelocity(velocity) }
     }
 
+    fun setAutoTurn(stepTurns: Float, periodSeconds: Float) {
+        scope.launch { rotisserie.enableAutoTurn(stepTurns, periodSeconds) }
+    }
+
+    fun cancelAutoTurn() {
+        scope.launch { rotisserie.disableAutoTurn() }
+    }
+
     private companion object {
         const val TAG = "BbqRepository"
         const val MAX_LOG_ENTRIES = 50

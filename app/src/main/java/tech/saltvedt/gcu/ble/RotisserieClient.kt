@@ -67,6 +67,14 @@ class RotisserieClient(
     @Volatile
     private var commandWriteType: BleWriteType = BleWriteType.DEFAULT
 
+    /** `auto_turn` characteristic for the *current* GATT session; null when not ready. */
+    @Volatile
+    private var autoTurnChar: ClientBleGattCharacteristic? = null
+
+    /** Write type for [autoTurnChar], chosen from its advertised properties. */
+    @Volatile
+    private var autoTurnWriteType: BleWriteType = BleWriteType.DEFAULT
+
     /** Per-connection job owning discovery + all notification collectors. */
     private var sessionJob: Job? = null
 
@@ -133,6 +141,7 @@ class RotisserieClient(
                 sessionJob?.cancel()
                 connectionJob?.cancel()
                 commandChar = null
+                autoTurnChar = null
                 runCatching { client?.close() }
                 client = null
                 open()
@@ -145,6 +154,7 @@ class RotisserieClient(
     /** Tear down the previous session: its characteristics are now invalid. */
     private fun onDisconnected() {
         commandChar = null
+        autoTurnChar = null
         sessionJob?.cancel()
         _state.update { it.copy(rssi = null) }
         log("Disconnected — link dropped", error = true)
@@ -179,6 +189,16 @@ class RotisserieClient(
                 )
             }
 
+            val autoTurn = service.findCharacteristic(RotisserieUuids.AUTO_TURN)
+            autoTurnChar = autoTurn
+            if (autoTurn == null) {
+                log("Auto-turn characteristic missing", error = true)
+            } else {
+                autoTurnWriteType =
+                    if (autoTurn.properties.contains(BleGattProperty.PROPERTY_WRITE_NO_RESPONSE))
+                        BleWriteType.NO_RESPONSE else BleWriteType.DEFAULT
+            }
+
             subscribe(service, RotisserieUuids.POSITION, "position") { data ->
                 _state.update { it.copy(position = Parsing.parseF32OrStale(data)) }
             }
@@ -201,6 +221,19 @@ class RotisserieClient(
             }
             subscribe(service, RotisserieUuids.CONTROLLER_EVENT, "controller_event") { data ->
                 Parsing.parseEvent(data)?.let { _events.tryEmit(it) }
+            }
+            subscribe(service, RotisserieUuids.AUTO_TURN, "auto_turn") { data ->
+                val parsed = Parsing.parseAutoTurn(data)
+                _state.update {
+                    it.copy(
+                        autoTurnEnabled = parsed?.first ?: false,
+                        autoTurnStep = parsed?.second,
+                        autoTurnPeriod = parsed?.third,
+                    )
+                }
+            }
+            subscribe(service, RotisserieUuids.AUTO_TURN_REMAINING, "auto_turn_remaining") { data ->
+                _state.update { it.copy(autoTurnRemaining = Parsing.parseAutoTurnRemaining(data)) }
             }
 
             pollRssi(gatt)
@@ -256,11 +289,11 @@ class RotisserieClient(
         }
     }
 
-    suspend fun flipBy(turns: Float) = write(Parsing.flipByCommand(turns), "flip_by $turns")
+    suspend fun flipBy(turns: Float) = writeCommand(Parsing.flipByCommand(turns), "flip_by $turns")
 
-    suspend fun stop() = write(Parsing.forceIdleCommand, "force_idle")
+    suspend fun stop() = writeCommand(Parsing.forceIdleCommand, "force_idle")
 
-    suspend fun clearErrors() = write(Parsing.clearErrorsCommand, "clear_errors")
+    suspend fun clearErrors() = writeCommand(Parsing.clearErrorsCommand, "clear_errors")
 
     /**
      * Set the move-speed cap (gearbox rev/s). The firmware has no read-back and resets
@@ -268,9 +301,21 @@ class RotisserieClient(
      * every (re)connect (see [onConnected]).
      */
     suspend fun setMaxVelocity(velocity: Float) {
-        write(Parsing.setMaxVelocityCommand(velocity), "set_max_velocity $velocity")
+        writeCommand(Parsing.setMaxVelocityCommand(velocity), "set_max_velocity $velocity")
         _state.update { it.copy(maxVelocity = velocity) }
     }
+
+    /** Enable the recurring "turn [step] every [period] seconds" schedule. */
+    suspend fun enableAutoTurn(step: Float, period: Float) =
+        write(
+            autoTurnChar, autoTurnWriteType,
+            Parsing.enableAutoTurnCommand(step, period),
+            "auto_turn enable step=$step period=$period",
+        )
+
+    /** Cancel the recurring auto-turn schedule. */
+    suspend fun disableAutoTurn() =
+        write(autoTurnChar, autoTurnWriteType, Parsing.disableAutoTurnCommand, "auto_turn disable")
 
     /** Serializes command writes so taps can't race each other into the GATT queue. */
     private val writeMutex = Mutex()
@@ -284,18 +329,26 @@ class RotisserieClient(
      * with a timeout, and on timeout tear the connection down and reconnect fresh to
      * clear the wedged mutex instead of silently swallowing all future commands.
      */
+    /** Write to the `command` characteristic for the current session. */
+    private suspend fun writeCommand(bytes: ByteArray, label: String) =
+        write(commandChar, commandWriteType, bytes, label)
+
     @SuppressLint("MissingPermission")
-    private suspend fun write(bytes: ByteArray, label: String) {
-        val characteristic = commandChar
+    private suspend fun write(
+        characteristic: ClientBleGattCharacteristic?,
+        writeType: BleWriteType,
+        bytes: ByteArray,
+        label: String,
+    ) {
         if (characteristic == null) {
-            log("$label dropped — not ready (no command characteristic)", error = true)
+            log("$label dropped — not ready (characteristic unavailable)", error = true)
             return
         }
         log("$label → writing ${bytes.size} B")
         try {
             writeMutex.withLock {
                 withTimeout(WRITE_TIMEOUT_MS) {
-                    characteristic.write(DataByteArray(bytes), commandWriteType)
+                    characteristic.write(DataByteArray(bytes), writeType)
                 }
             }
             log("$label acknowledged")

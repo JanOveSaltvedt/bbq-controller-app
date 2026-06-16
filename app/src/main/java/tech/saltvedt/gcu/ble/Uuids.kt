@@ -18,6 +18,8 @@ object RotisserieUuids {
     val ERRORS: UUID = UUID.fromString("59a4a1c0-8b8e-4a9c-bbe3-000000000007")
     val CONTROLLER_EVENT: UUID = UUID.fromString("59a4a1c0-8b8e-4a9c-bbe3-000000000008")
     val COMMAND: UUID = UUID.fromString("59a4a1c0-8b8e-4a9c-bbe3-000000000009")
+    val AUTO_TURN: UUID = UUID.fromString("59a4a1c0-8b8e-4a9c-bbe3-00000000000a")
+    val AUTO_TURN_REMAINING: UUID = UUID.fromString("59a4a1c0-8b8e-4a9c-bbe3-00000000000b")
 
     // command kinds (byte 0 of the COMMAND characteristic)
     const val CMD_FLIP_BY: Byte = 0x00

@@ -32,6 +32,10 @@ data class RotisserieState(
     val activeErrors: Long = 0L,
     val disarmReason: Long = 0L,
     val maxVelocity: Float = 0.1f,      // last-written move-speed cap, gearbox rev/s (no read-back)
+    val autoTurnEnabled: Boolean = false,   // recurring turn schedule currently active
+    val autoTurnStep: Float? = null,        // gearbox turns per cycle (from notify)
+    val autoTurnPeriod: Float? = null,      // seconds between cycles (from notify)
+    val autoTurnRemaining: Float? = null,   // seconds until the next turn; null when disabled
 ) {
     val hasErrors: Boolean get() = activeErrors != 0L || disarmReason != 0L
 }

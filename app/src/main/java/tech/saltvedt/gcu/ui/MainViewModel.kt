@@ -21,4 +21,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stop() = repository.stop()
     fun clearErrors() = repository.clearErrors()
     fun setMaxVelocity(velocity: Float) = repository.setMaxVelocity(velocity)
+    fun setAutoTurn(stepTurns: Float, periodSeconds: Float) = repository.setAutoTurn(stepTurns, periodSeconds)
+    fun cancelAutoTurn() = repository.cancelAutoTurn()
 }

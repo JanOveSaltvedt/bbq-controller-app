@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
                         onStop = viewModel::stop,
                         onClearErrors = viewModel::clearErrors,
                         onSetMaxVelocity = viewModel::setMaxVelocity,
+                        onSetAutoTurn = viewModel::setAutoTurn,
+                        onCancelAutoTurn = viewModel::cancelAutoTurn,
                     )
                 }
             }
