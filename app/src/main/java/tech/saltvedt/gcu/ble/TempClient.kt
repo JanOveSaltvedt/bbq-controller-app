@@ -5,7 +5,9 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -147,7 +149,12 @@ class TempClient(
             return
         }
         try {
-            characteristic.write(DataByteArray(bytes))
+            // Bounded so a hung write can't permanently stall the poll loop.
+            withTimeout(WRITE_TIMEOUT_MS) {
+                characteristic.write(DataByteArray(bytes))
+            }
+        } catch (e: TimeoutCancellationException) {
+            log("$label timed out after $WRITE_TIMEOUT_MS ms — no GATT write ack", error = true)
         } catch (e: Exception) {
             log("$label failed: ${e.message ?: e.javaClass.simpleName}", error = true)
         }
@@ -161,5 +168,6 @@ class TempClient(
     private companion object {
         const val TAG = "TempClient"
         const val POLL_INTERVAL_MS = 5000L
+        const val WRITE_TIMEOUT_MS = 3000L
     }
 }
