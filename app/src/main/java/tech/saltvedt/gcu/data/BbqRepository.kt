@@ -22,6 +22,7 @@ import tech.saltvedt.gcu.ble.RotisserieClient
 import tech.saltvedt.gcu.ble.RotisserieUuids
 import tech.saltvedt.gcu.ble.TempClient
 import tech.saltvedt.gcu.ble.TempUuids
+import tech.saltvedt.gcu.ble.WpProbeClient
 import tech.saltvedt.gcu.ble.serviceUuids
 import tech.saltvedt.gcu.model.CommsLogEntry
 import tech.saltvedt.gcu.model.ConnectionStatus
@@ -29,6 +30,7 @@ import tech.saltvedt.gcu.model.ControllerEvent
 import tech.saltvedt.gcu.model.RotisserieState
 import tech.saltvedt.gcu.model.TempState
 import tech.saltvedt.gcu.model.UiState
+import tech.saltvedt.gcu.model.WpProbeState
 
 /**
  * Single source of truth for the BBQ control screen. Scans for the rotisserie and
@@ -40,25 +42,30 @@ class BbqRepository(context: Context) {
 
     private val rotisserie = RotisserieClient(appContext, scope)
     private val temp = TempClient(appContext, scope)
+    private val wpProbe = WpProbeClient(scope)
 
     /** Reflects whether a scan is currently active (before either device connects). */
     private val scanningRotisserie = MutableStateFlow(false)
     private val scanningTemp = MutableStateFlow(false)
+    // Beacon-only: stays true for the app's lifetime since the scan never stops; the
+    // chip flips to Connected/Disconnected the moment beacons start/stop arriving.
+    private val scanningWpProbe = MutableStateFlow(false)
 
     /** Rolling BLE communication log (newest last), capped at [MAX_LOG_ENTRIES]. */
     private val commsLog = MutableStateFlow<List<CommsLogEntry>>(emptyList())
 
     init {
-        merge(rotisserie.comms, temp.comms)
+        merge(rotisserie.comms, temp.comms, wpProbe.comms)
             .onEach { entry -> commsLog.update { (it + entry).takeLast(MAX_LOG_ENTRIES) } }
             .launchIn(scope)
     }
 
     val uiState: StateFlow<UiState> =
-        combine(rotisserie.state, temp.state, commsLog) { r, t, log ->
+        combine(rotisserie.state, temp.state, wpProbe.state, commsLog) { r, t, w, log ->
             UiState(
                 rotisserie = applyScanning(r, scanningRotisserie.value),
                 temp = applyScanning(t, scanningTemp.value),
+                wpProbe = applyScanning(w, scanningWpProbe.value),
                 commsLog = log,
             )
         }.stateIn(scope, SharingStarted.Eagerly, UiState())
@@ -78,14 +85,22 @@ class BbqRepository(context: Context) {
         if (scanning && state.connection == ConnectionStatus.Idle)
             state.copy(connection = ConnectionStatus.Scanning) else state
 
+    private fun applyScanning(state: WpProbeState, scanning: Boolean): WpProbeState =
+        if (scanning && state.connection == ConnectionStatus.Idle)
+            state.copy(connection = ConnectionStatus.Scanning) else state
+
     @SuppressLint("MissingPermission")
     fun start() {
         if (started) return
         started = true
         scanningRotisserie.value = true
         scanningTemp.value = true
+        scanningWpProbe.value = true
         scanJob = BleScanner(appContext).scan()
-            .onEach { result -> onScanResult(result.device.address, result.device.name, result.serviceUuids()) }
+            .onEach { result ->
+                onScanResult(result.device.address, result.device.name, result.serviceUuids())
+                wpProbe.onAdvertisement(result)
+            }
             .launchIn(scope)
     }
 
@@ -104,9 +119,9 @@ class BbqRepository(context: Context) {
             Log.i(TAG, "Connecting to temp sensor at $address")
             scope.launch { temp.connect(address) }
         }
-        if (rotisserieAddress != null && tempAddress != null) {
-            scanJob?.cancel()
-        }
+        // The scan is intentionally never stopped: the WPprobe is beacon-only and needs
+        // continuous advertisements. The address guards above prevent duplicate GATT
+        // connects to the rotisserie/temp sensor once each is found.
     }
 
     fun flipBy(turns: Float) {

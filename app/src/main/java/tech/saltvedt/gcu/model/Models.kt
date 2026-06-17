@@ -54,10 +54,23 @@ data class TempState(
     val battery: Int? = null,           // 0..100
 )
 
+/**
+ * WPprobe dual-sensor beacon thermometer (meat tip + ambient). Beacon-only: there is no
+ * GATT connection, so [connection] reflects beacon presence (Connected while fresh,
+ * Disconnected once readings go stale).
+ */
+data class WpProbeState(
+    val connection: ConnectionStatus = ConnectionStatus.Idle,
+    val rssi: Int? = null,              // latest signal strength in dBm; null when unknown
+    val meatC: Float? = null,           // tip temperature
+    val ambientC: Float? = null,        // ambient/surface temperature
+    val battery: Int? = null,           // 0..100
+)
+
 /** One line in the BLE communication log, surfaced for on-device diagnostics. */
 data class CommsLogEntry(
     val timestampMs: Long,
-    val source: String,        // "Rotisserie" / "Temp"
+    val source: String,        // "Rotisserie" / "Temp" / "WPprobe"
     val message: String,
     val isError: Boolean = false,
 )
@@ -66,5 +79,6 @@ data class CommsLogEntry(
 data class UiState(
     val rotisserie: RotisserieState = RotisserieState(),
     val temp: TempState = TempState(),
+    val wpProbe: WpProbeState = WpProbeState(),
     val commsLog: List<CommsLogEntry> = emptyList(),
 )

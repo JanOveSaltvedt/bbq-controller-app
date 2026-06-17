@@ -116,6 +116,45 @@ object Parsing {
         val probeId = (data[3].toInt() and 0xF0) shr 4
         return TempReading(probeId, celsius, battery)
     }
+
+    // --- WPprobe (beacon-only dual-sensor thermometer) ---
+
+    data class WpProbeReading(val meatC: Float?, val ambientC: Float?, val battery: Int)
+
+    /** Big-endian unsigned 16-bit read at [offset]. */
+    private fun be16(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 8) or (bytes[offset + 1].toInt() and 0xFF)
+
+    /**
+     * The BLE stack splits manufacturer data into a 2-byte company id (here really the
+     * first two MAC bytes) plus the value bytes. Rebuild the full payload by prepending
+     * the company id as two little-endian bytes — mirror of the reference python
+     * `reconstruct_payload`.
+     */
+    fun reconstructWpPayload(companyId: Int, value: ByteArray): ByteArray =
+        byteArrayOf((companyId and 0xFF).toByte(), ((companyId shr 8) and 0xFF).toByte()) + value
+
+    /**
+     * Decode a reconstructed WPprobe manufacturer payload (tip + ambient temps). Each
+     * sensor reports a sentinel when inactive (meat 0xFFFF, ambient 0x8000) and those —
+     * along with out-of-range values — decode to null. Returns null for a short frame.
+     */
+    fun decodeWpProbe(payload: ByteArray): WpProbeReading? {
+        if (payload.size < WpProbeProtocol.PAYLOAD_LEN) return null
+        return WpProbeReading(
+            meatC = wpTemp(be16(payload, 8), WpProbeProtocol.MEAT_SENTINEL),
+            ambientC = wpTemp(be16(payload, 12), WpProbeProtocol.AMBIENT_SENTINEL),
+            battery = payload[10].toInt() and 0xFF,
+        )
+    }
+
+    /** A big-endian int16 tenths-of-a-degree reading; sentinel or out-of-range -> null. */
+    private fun wpTemp(word: Int, sentinel: Int): Float? {
+        if (word == sentinel) return null
+        val signed = if (word and 0x8000 != 0) word - 0x10000 else word
+        val c = signed / 10.0f
+        return if (c in WpProbeProtocol.TEMP_LO..WpProbeProtocol.TEMP_HI) c else null
+    }
 }
 
 /**
@@ -143,4 +182,18 @@ object TempProtocol {
 
     val POLL_PROBE_0: ByteArray = byteArrayOf(0xa4.toByte(), 0x05, 0x00, 0xf0.toByte(), 0x51)
     val POLL_PROBE_1: ByteArray = byteArrayOf(0xa4.toByte(), 0x05, 0x01, 0xf0.toByte(), 0x50)
+}
+
+/**
+ * WPprobe (third-party beacon thermometer) advertisement constants. This probe never
+ * connects — it broadcasts a 15-byte manufacturer-data payload decoded by
+ * [Parsing.decodeWpProbe]. Matched by advertised name [TARGET_NAME].
+ */
+object WpProbeProtocol {
+    const val TARGET_NAME = "WPprobe"
+    const val PAYLOAD_LEN = 15
+    const val MEAT_SENTINEL = 0xFFFF        // tip "no reading"
+    const val AMBIENT_SENTINEL = 0x8000     // ambient "no reading" -> LO
+    const val TEMP_LO = -55.0f              // plausible range guard (Celsius)
+    const val TEMP_HI = 350.0f
 }

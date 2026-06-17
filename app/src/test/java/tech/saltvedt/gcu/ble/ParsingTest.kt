@@ -154,4 +154,52 @@ class ParsingTest {
     fun `temp decode rejects short frames`() {
         assertNull(Parsing.decodeTemp(ByteArray(5)))
     }
+
+    private fun hex(s: String): ByteArray =
+        s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    // WPprobe vectors captured against the probe's own display (see temp-probe.py).
+
+    @Test
+    fun `wpprobe decodes warm tip with ambient LO`() {
+        val r = Parsing.decodeWpProbe(hex("FB17A41642F301010165601D80001F"))
+        assertNotNull(r)
+        assertEquals(35.7f, r!!.meatC!!, 0.01f)
+        assertNull(r.ambientC)          // 0x8000 sentinel
+        assertEquals(96, r.battery)
+    }
+
+    @Test
+    fun `wpprobe decodes ice tip`() {
+        val r = Parsing.decodeWpProbe(hex("FB17A41642F301010082641D800010"))
+        assertNotNull(r)
+        assertEquals(13.0f, r!!.meatC!!, 0.01f)
+        assertNull(r.ambientC)
+        assertEquals(100, r.battery)
+    }
+
+    @Test
+    fun `wpprobe decodes hot ambient with tip LO`() {
+        val r = Parsing.decodeWpProbe(hex("FB17A41642F30101FFFF641D04AC77"))
+        assertNotNull(r)
+        assertNull(r!!.meatC)           // 0xFFFF sentinel
+        assertEquals(119.6f, r.ambientC!!, 0.01f)
+        assertEquals(100, r.battery)
+    }
+
+    @Test
+    fun `wpprobe rejects short frames`() {
+        assertNull(Parsing.decodeWpProbe(ByteArray(5)))
+    }
+
+    @Test
+    fun `wpprobe reconstruct prepends little-endian company id`() {
+        val value = hex("A41642F301010165601D80001F")   // 13 value bytes (company id stripped)
+        val payload = Parsing.reconstructWpPayload(0x17FB, value)
+        assertEquals(0xFB.toByte(), payload[0])
+        assertEquals(0x17.toByte(), payload[1])
+        val r = Parsing.decodeWpProbe(payload)
+        assertNotNull(r)
+        assertEquals(35.7f, r!!.meatC!!, 0.01f)
+    }
 }

@@ -45,6 +45,7 @@ import tech.saltvedt.gcu.model.ControllerEventKind
 import tech.saltvedt.gcu.model.RotisserieState
 import tech.saltvedt.gcu.model.TempState
 import tech.saltvedt.gcu.model.UiState
+import tech.saltvedt.gcu.model.WpProbeState
 import androidx.compose.runtime.LaunchedEffect
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,12 +81,14 @@ fun MainScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ConnectionHeader(uiState.rotisserie, uiState.temp)
+            ConnectionHeader(uiState.rotisserie, uiState.temp, uiState.wpProbe)
+            TemperatureHeader(uiState.temp, uiState.wpProbe)
             RotisserieCard(
                 uiState.rotisserie, onFlipBy, onStop, onClearErrors, onSetMaxVelocity,
                 onSetAutoTurn, onCancelAutoTurn,
             )
             TempCard(uiState.temp)
+            WpProbeCard(uiState.wpProbe)
             CommsLogCard(uiState.commsLog)
         }
     }
@@ -103,15 +106,48 @@ private suspend fun SnackbarHostState.showMessage(event: ControllerEvent) {
 }
 
 @Composable
-private fun ConnectionHeader(rotisserie: RotisserieState, temp: TempState) {
+private fun ConnectionHeader(rotisserie: RotisserieState, temp: TempState, wpProbe: WpProbeState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ConnectionChip("Rotisserie", rotisserie.connection, rotisserie.rssi, Modifier.weight(1f))
         ConnectionChip("Temp sensor", temp.connection, temp.rssi, Modifier.weight(1f))
+        ConnectionChip("Wireless probe", wpProbe.connection, wpProbe.rssi, Modifier.weight(1f))
     }
 }
+
+@Composable
+private fun TemperatureHeader(temp: TempState, wpProbe: WpProbeState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        TemperatureChip("Probe 1", listOf(formatTemp(temp.temp1C)), Modifier.weight(1f))
+        TemperatureChip("Probe 2", listOf(formatTemp(temp.temp2C)), Modifier.weight(1f))
+        TemperatureChip("Wireless", listOf(formatTemp(wpProbe.meatC)), Modifier.weight(1f))
+        TemperatureChip("Ambient", listOf(formatTemp(wpProbe.ambientC)), Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun TemperatureChip(label: String, values: List<String>, modifier: Modifier = Modifier) {
+    Surface(
+        color = Color(0xFF37474F),
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
+            for (value in values) {
+                Text(value, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+private fun formatTemp(celsius: Float?): String =
+    celsius?.let { "%.1f °C".format(it) } ?: "—"
 
 @Composable
 private fun ConnectionChip(
@@ -403,6 +439,18 @@ private fun TempCard(state: TempState) {
             Text("Meat probes", style = MaterialTheme.typography.titleMedium)
             TelemetryRow("Probe 1", state.temp1C?.let { "%.1f °C".format(it) })
             TelemetryRow("Probe 2", state.temp2C?.let { "%.1f °C".format(it) })
+            TelemetryRow("Battery", state.battery?.let { "$it%" })
+        }
+    }
+}
+
+@Composable
+private fun WpProbeCard(state: WpProbeState) {
+    Card(elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Wireless probe", style = MaterialTheme.typography.titleMedium)
+            TelemetryRow("Meat tip", state.meatC?.let { "%.1f °C".format(it) })
+            TelemetryRow("Ambient", state.ambientC?.let { "%.1f °C".format(it) })
             TelemetryRow("Battery", state.battery?.let { "$it%" })
         }
     }
