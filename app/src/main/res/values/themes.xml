@@ -2,4 +2,12 @@
 <resources>
 
     <style name="Theme.GCU" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- Launch splash: shows the launcher icon (its foreground) over the icon
+         background while the app starts, then hands off to Theme.GCU. -->
+    <style name="Theme.GCU.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.GCU</item>
+    </style>
 </resources>
